@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tongue Tagger: language identifier</title>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;700;800&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#e9eef5;--ink:#14213d;--mut:#5b6b85;--card:#fff;--line:#cfd8e6;--acc:#2f4bff}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 "IBM Plex Sans",system-ui,sans-serif}
+main{max-width:920px;margin:0 auto;padding:40px 20px 60px}
+h1{font:800 clamp(34px,6vw,58px)/1.05 "Bricolage Grotesque",sans-serif;margin:0 0 10px;letter-spacing:-.02em}
+.sub{color:var(--mut);max-width:60ch;margin:0 0 28px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;margin-bottom:18px}
+textarea{width:100%;min-height:130px;border:0;resize:vertical;font:inherit;font-size:19px;color:var(--ink);outline:none;background:transparent}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px}
+.chip{border:1px solid var(--line);background:#f5f8fc;border-radius:999px;padding:6px 12px;font:inherit;font-size:14px;cursor:pointer;color:var(--ink)}
+.chip:hover,.chip:focus-visible{border-color:var(--acc);outline:2px solid var(--acc);outline-offset:1px}
+.meta{color:var(--mut);font-size:13px}
+.verdict{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+.verdict b{font:800 38px "Bricolage Grotesque",sans-serif}
+.tag{font-size:13px;padding:3px 10px;border-radius:999px;background:var(--ink);color:#fff}
+.tag.mix{background:#d6336c}
+h2{font:700 15px "Bricolage Grotesque",sans-serif;margin:0 0 12px;color:var(--mut)}
+.bar{display:grid;grid-template-columns:96px 1fr 52px;gap:10px;align-items:center;margin:7px 0;font-size:14px}
+.track{height:12px;background:#edf1f7;border-radius:6px;overflow:hidden}
+.fill{height:100%;border-radius:6px;transition:width .35s}
+.words{display:flex;flex-wrap:wrap;gap:6px}
+.w{padding:4px 9px;border-radius:7px;font-size:17px;border-bottom:3px solid}
+.legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:12px;font-size:13px;color:var(--mut)}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px}
+.seg{padding:8px 0;border-top:1px solid var(--line);display:flex;gap:12px}
+.seg span:first-child{min-width:96px;font-weight:500}
+.empty{color:var(--mut)}
+@media(prefers-reduced-motion:reduce){.fill{transition:none}}
+</style></head><body><main>
+<h1>Tongue Tagger</h1>
+<p class="sub">Paste a sentence. It reads character n-grams, names the language, and marks which words switch languages mid-sentence.</p>
+<div class="card">
+<textarea id="t" placeholder="Type or paste text in any of {{ languages|length }} languages, or mix them…" autofocus></textarea>
+<div class="row" id="ex"></div>
+<div class="row"><span class="meta" id="info">Waiting for text</span></div>
+</div>
+<div id="out"><div class="card empty">Results appear here as you type.</div></div>
+</main>
+<script>
+const LANGS={{ languages|tojson }};
+const COL=["#2f4bff","#e8590c","#2b9348","#d6336c","#7048e8","#0b7285","#c2255c","#9c6b00","#5c940d","#1971c2","#a61e4d","#087f5b"];
+const color=l=>COL[LANGS.indexOf(l)%COL.length];
+const EX=["Hello, मेरा नाम Rahul है and I live in Pune","I love पुणे कारण ते खूप सुंदर आहे","Je suis très heureux, but ich habe keine Zeit","Mañana vamos a la escuela and then back home","Das Wetter ist heute sehr schön","Мы идём гулять сегодня"];
+const t=document.getElementById("t"),out=document.getElementById("out"),info=document.getElementById("info");
+EX.forEach(s=>{const b=document.createElement("button");b.className="chip";b.textContent=s;b.onclick=()=>{t.value=s;run()};document.getElementById("ex").append(b)});
+const esc=s=>s.replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+let timer;t.addEventListener("input",()=>{clearTimeout(timer);timer=setTimeout(run,250)});
+async function run(){
+  const text=t.value.trim();
+  if(!text){out.innerHTML='<div class="card empty">Results appear here as you type.</div>';info.textContent="Waiting for text";return}
+  let r;try{r=await (await fetch("/api/detect",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text})})).json()}
+  catch(e){out.innerHTML='<div class="card">The server did not respond. Check that app.py is still running.</div>';return}
+  info.textContent=r.words.length+" words, "+r.ngram_count+" n-grams scored";
+  const used=[...new Set(r.words.map(w=>w.lang))];
+  out.innerHTML=`
+  <div class="card"><div class="verdict"><b style="color:${color(r.primary)}">${r.mixed?"Mixed text":esc(r.primary)}</b>
+  <span class="tag ${r.mixed?"mix":""}">${r.mixed?r.scores.map(s=>esc(s.lang)).join(" + "):r.scores[0].pct+"% confident"}</span></div></div>
+  <div class="card"><h2>${r.mixed?"Share of text by language":"Top matches"}</h2>${r.scores.map(s=>`
+  <div class="bar"><span>${esc(s.lang)}</span><div class="track"><div class="fill" style="width:${s.pct}%;background:${color(s.lang)}"></div></div><span>${s.pct}%</span></div>`).join("")}</div>
+  <div class="card"><h2>Word by word</h2><div class="words">${r.words.map(w=>`<span class="w" title="${esc(w.lang)} (${Math.round(w.conf*100)}%)" style="background:${color(w.lang)}1a;border-color:${color(w.lang)}">${esc(w.w)}</span>`).join("")}</div>
+  <div class="legend">${used.map(l=>`<span><i class="dot" style="background:${color(l)}"></i>${esc(l)}</span>`).join("")}</div></div>
+  ${r.mixed?`<div class="card"><h2>Language switches</h2>${r.segments.map(s=>`<div class="seg"><span style="color:${color(s.lang)}">${esc(s.lang)}</span><span>${esc(s.text)}</span></div>`).join("")}</div>`:""}`;
+}
+</script></body></html>
